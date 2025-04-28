@@ -30,6 +30,11 @@ bot=telebot.TeleBot(token,parse_mode="HTML")
 owners = ["6847432039", "6847432039"]
 
 
+from pp import register_pp  # Import the command module
+
+# Register /pp command
+register_pp(bot)
+
 # Register /su command
 @bot.message_handler(commands=['su'])
 def su_handler(message):
@@ -209,20 +214,55 @@ def check_user_credits(message):
     bot.send_message(message.chat.id, response, parse_mode="Markdown")
 
 @bot.message_handler(commands=['vbv'])
-def vbv_maintenance(message):
-    response = """
-🚧 **VBV CHECK UNDER MAINTENANCE** 🚧
+def vbv_handler(message):
+    try:
+        user = message.from_user
+        cc_input = message.text.split(' ', 1)[1].strip()
+        url = f"http://147.93.105.138:7777/key=darkvbv/cc={cc_input}"
 
-Dear user, our VBV detection system is currently **under maintenance**.  
-We are working to improve accuracy and stability.
+        r = requests.get(url, timeout=10)
+        data = r.json()
 
-🔄 **Expected Fix Time:** Soon!  
-🛠 **Status:** Upgrading API & Improving Response Speed  
+        card = data.get("cc", "N/A").replace('`', '')
+        status = data.get("status", "N/A")
+        result = data.get("response", "N/A")
+        gateway = data.get("gateway", "N/A")
+        time_taken = data.get("time_taken", "N/A")
 
-Please check back later. Thanks for your patience! 💙
-"""
-    bot.send_message(message.chat.id, response, parse_mode="Markdown")
+        bin_info = data.get("bin_info", {})
+        brand = bin_info.get("brand", "N/A")
+        type_ = bin_info.get("type", "N/A")
+        level = bin_info.get("level", "N/A")
+        bank = bin_info.get("bank", "N/A")
+        country = bin_info.get("country", "N/A")
 
+        # Build premium-style message
+        msg = (
+            "━━━━━━━━━━━━━━━\n"
+            f"🔐 *VBV PREMIUM CHECK*\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"*Card:* `{card}`\n"
+            f"*Status:* {status}\n"
+            f"*Result:* {result}\n"
+            f"*Gateway:* `{gateway}`\n"
+            f"*Speed:* `{time_taken}`\n"
+            "━━━━━━━━━━━━━━━\n"
+            f"🏦 *Bank Info:*\n"
+            f"• *Brand:* {brand}\n"
+            f"• *Type:* {type_}\n"
+            f"• *Level:* {level}\n"
+            f"• *Bank:* {bank}\n"
+            f"• *Country:* {country}\n"
+            "━━━━━━━━━━━━━━━"
+        )
+
+        full_name = f"[{user.first_name}](tg://user?id={user.id})"
+        bot.send_message(message.chat.id, f"👤 {full_name}\n{msg}", parse_mode="Markdown")
+
+    except IndexError:
+        bot.send_message(message.chat.id, "Usage: /vbv <cc|mm|yy|cvv>")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
 
 @bot.message_handler(commands=["owner"])
 def owner_command(message):
@@ -1444,6 +1484,12 @@ def get_bin_details(bin_number):
 
 @bot.message_handler(commands=['chk'])
 def chk_command(message):
+    import re
+    import requests
+    import html
+    import time
+    from datetime import datetime
+
     user_id = message.from_user.id
 
     if not is_premium_user(user_id):
@@ -1470,15 +1516,16 @@ def chk_command(message):
     if len(year) == 2:
         current_year = datetime.now().year
         century = int(str(current_year)[:2])
-        year = str(century) + year  
+        year = str(century) + year
 
-    # Fetch BIN Details
+    # Fetch BIN details
     bank, country = get_bin_details(bin_number)
+    if not bank: bank = "Not Available"
+    if not country: country = "Not Available"
 
-    # Send initial waiting message
+    # Send loading progress
     waiting_msg = bot.send_message(message.chat.id, "⏳ <b>Checking Card...</b>\n🔴⚪⚪⚪⚪⚪⚪⚪⚪⚪ (0%)", parse_mode="HTML")
 
-    # Update the percentage bar with color transitions
     progress_stages = [
         ("🔴🔴⚪⚪⚪⚪⚪⚪⚪⚪ (10%)", 0.8),
         ("🔴🔴🟠⚪⚪⚪⚪⚪⚪⚪ (20%)", 0.8),
@@ -1491,29 +1538,45 @@ def chk_command(message):
         ("🔴🔴🟠🟠🟡🟡🔵🔵🟢🟢 (90%)", 0.8),
         ("🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢 (100%)", 0.8),
     ]
-
     for bar, delay in progress_stages:
         time.sleep(delay)
         bot.edit_message_text(f"⏳ <b>Checking Card...</b>\n{bar}", message.chat.id, waiting_msg.message_id, parse_mode="HTML")
 
-    api_url = f"https://darkboyccapi.onrender.com/key=dark/cc={card_number}|{month}|{year}|{cvv}"
-    response = requests.get(api_url)
-
-    if response.status_code != 200:
-        bot.edit_message_text(f"⚠️ <b>API Error:</b> {response.text}", message.chat.id, waiting_msg.message_id, parse_mode="HTML")
+    # API call
+    api_url = f"http://147.93.105.138:8899/dark/{card_number}|{month}|{year}|{cvv}"
+    try:
+        response = requests.get(api_url, timeout=20)
+        response.raise_for_status()
+    except Exception as e:
+        bot.edit_message_text(f"⚠️ <b>API Error:</b> {html.escape(str(e))}", message.chat.id, waiting_msg.message_id, parse_mode="HTML")
         return
 
-    data = response.json()
-    status = "✅ Approved" if data.get("status") == "Approved" else "❌ Declined"
-    card_response = html.escape(data.get("response", "No response provided"))
+    try:
+        data = response.json()
+    except ValueError:
+        bot.edit_message_text(f"⚠️ <b>Invalid JSON:</b> {html.escape(response.text)}", message.chat.id, waiting_msg.message_id, parse_mode="HTML")
+        return
+
+    # Normalize and interpret result
+    data = {k.lower(): v for k, v in data.items()}
+    status_text = data.get("status", "").lower()
+    response_text_raw = data.get("response") or data.get("message") or "No response from API"
+    response_text_clean = html.escape(str(response_text_raw).strip())
+
+    if any(word in status_text for word in ["approved", "success", "charged"]):
+        status = "✅ Approved"
+    else:
+        status = "❌ Declined"
+
     time_taken = round(time.time() - start_time, 2)
 
-    response_text = f"""
+    # Final response
+    final_text = f"""
 🎩 <b>𝑼𝑳𝑻𝑰𝑴𝑨𝑻𝑬 𝑪𝑨𝑹𝑫 𝑪𝑯𝑬𝑪𝑲</b> 🎩
 ━━━━━━━━━━━━━━━━━━━━━
 💳 <b>𝐂𝐚𝐫𝐝:</b> <code>{card_details}</code>
 📌 <b>𝐒𝐭𝐚𝐭𝐮𝐬:</b> {status}
-📝 <b>𝐂𝐚𝐫𝐝 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞:</b> {card_response}
+📝 <b>𝐂𝐚𝐫𝐝 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞:</b> {response_text_clean}
 ━━━━━━━━━━━━━━━━━━━━━
 🏦 <b>𝐁𝐚𝐧𝐤:</b> {bank}
 🌍 <b>𝐂𝐨𝐮𝐧𝐭𝐫𝐲:</b> {country}
@@ -1523,7 +1586,8 @@ def chk_command(message):
 🔹 𝐄𝐱𝐜𝐥𝐮𝐬𝐢𝐯𝐞 𝐏𝐫𝐞𝐦𝐢𝐮𝐦 𝐀𝐜𝐜𝐞𝐬𝐬 ✅
 """
 
-    bot.edit_message_text(response_text, message.chat.id, waiting_msg.message_id, parse_mode="HTML")
+    bot.edit_message_text(final_text, message.chat.id, waiting_msg.message_id, parse_mode="HTML")
+
 
 import telebot
 from braintree_checker import check_braintree
