@@ -270,7 +270,7 @@ def owner_command(message):
     bot_username = "@GalaxyCheckers_Bot"
     owner_name = "👑 <b>Galaxy Carders</b>"
     owner_username = "@Galaxy_Carder"
-    channel_link = "https://t.me/+pdy_h4NCYlM3Mjc9"
+    channel_link = "https://t.me/+Czqp0ifRQQxjNGE1"
 
     response = f"""
 <code>╭───────────────────────
@@ -359,7 +359,7 @@ def bin_command(message):
 @bot.message_handler(commands=["channel"])
 def channel_info(message):
     channel_name = "✨ <b>Galaxy Carders Official</b>"
-    channel_link = "https://t.me/+pdy_h4NCYlM3Mjc9"
+    channel_link = "https://t.me/+Czqp0ifRQQxjNGE1"
 
     related_channels = [
         ("💎 <b>Channels List</b>", "https://t.me/addlist/pDGo6Zh1hn4xMGE1"),
@@ -670,7 +670,7 @@ def kill_card(message):
     # 🔹 Add Inline Button Options
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
-        InlineKeyboardButton("🔥 Channel", url="https://t.me/+pdy_h4NCYlM3Mjc9"),
+        InlineKeyboardButton("🔥 Channel", url="https://t.me/+Czqp0ifRQQxjNGE1"),
         InlineKeyboardButton("👤 Contact Owner", url="https://t.me/Galaxy_Carder")
     )
 
@@ -777,7 +777,7 @@ def help_command(message):
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━  
 💬 <b>Need Help?</b> Contact <a href='https://t.me/Galaxy_Carder'>@Galaxy_Carder</a>  
-📢 <b>Stay Updated:</b> <a href='https://t.me/+pdy_h4NCYlM3Mjc9'>Join Official Channel</a>  
+📢 <b>Stay Updated:</b> <a href='https://t.me/+Czqp0ifRQQxjNGE1'>Join Official Channel</a>  
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━  
 <b>🔐 Admin Commands:</b>  
@@ -996,7 +996,7 @@ def send_broadcast(message):
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
         InlineKeyboardButton("👑 Owner", url="https://t.me/Galaxy_Carder"),
-        InlineKeyboardButton("🔥 Channel", url="https://t.me/+pdy_h4NCYlM3Mjc9")
+        InlineKeyboardButton("🔥 Channel", url="https://t.me/+Czqp0ifRQQxjNGE1")
     )
 
     # Count successful and failed messages
